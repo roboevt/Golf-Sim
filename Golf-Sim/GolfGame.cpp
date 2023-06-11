@@ -4,56 +4,66 @@
 #include <iostream>
 #include <string>
 
+#ifdef _WIN32
 #include <windows.h> //ugh, for emojis
+#endif
+
+using std::cout, std::endl;  // I'm tired of writing std::
 
 int Card::score() {
-	switch (rank) {
-	case jack:
+	switch (this->rank) {
+	case Rank::jack:
 		return -2;
-	case queen:
+	case Rank::queen:
 		return 10;
-	case king:
+	case Rank::king:
 		return 0;
 	default:
-		return rank;
+		return static_cast<int>(this->rank);
 	}
 }
 
 GolfGame::GolfGame(std::vector<std::shared_ptr<Player>> players) : 
 	players(players), numPlayers(static_cast<int>(players.size())), turnsTillDone(-1),
 	goOutScore(0) {
-	if (numPlayers < 2 || numPlayers * 6 > 52) {  // Todo parameter for number of decks
-		std::cout << "Invalid number of players" << std::endl;
+	if (numPlayers < 2 || numPlayers * 6 >= 52 * DECKS) {
+		cout << "Invalid number of players" << endl;
 		exit(1);  // TODO better usage message method
 	}
 	srand(static_cast<uint32_t>(time(0)));
-	deck = createRandomDeck();
+	deck = createDeck();
+	shuffleDeck();
 	discard.reserve(52);
 	hands.resize(numPlayers);
 
 	deal();
-
+#ifdef _WIN32
 	SetConsoleOutputCP(CP_UTF8);  // for emojis
-	std::cout << "Initial state:" << std::endl;
-	print();
+#endif
+	if (VERBOSE) {
+		cout << "Initial state:" << endl;
+		print();
+	}
 }
 
-std::vector<Card> GolfGame::createRandomDeck() {
+void GolfGame::shuffleDeck() {
+	static auto rng = std::default_random_engine{};
+	rng.seed(static_cast<uint32_t>(time(0)));
+	std::shuffle(std::begin(deck), std::end(deck), rng);
+}
+
+std::vector<Card> GolfGame::createDeck() {
 	std::vector<Card> deck;
 	deck.resize(52 * DECKS);
 	int i = 0;
 
-	for (int r = Card::Rank::ace; r <= Card::Rank::king; r++) {
-		for (int s = Card::Suit::club; s <= Card::Suit::spade; s++) {
+	for (int r = static_cast<int>(Card::Rank::ace); r <= static_cast<int>(Card::Rank::king); r++) {
+		for (int s = static_cast<int>(Card::Suit::club); s <= static_cast<int>(Card::Suit::spade); s++) {
 			// am I dumb? Why must this for loop be <= and not the rank?
 			Card card{ static_cast<Card::Rank>(r), static_cast<Card::Suit>(s), true };
 			deck[i++] = card;
 		}
 	}
-
-	auto rng = std::default_random_engine{};
-	rng.seed(static_cast<uint32_t>(time(0)));
-	std::shuffle(std::begin(deck), std::end(deck), rng);
 
 	return deck;
 }
@@ -77,35 +87,36 @@ std::ostream& operator<< (std::ostream& stream, const Card& card) {
 	static const std::string suits[] = {
 	"♣️", "♦️", "♥️", "♠️" };
 	if (card.flipped)
-		return stream << ranks[card.rank] << suits[card.suit];
+		return stream << ranks[static_cast<std::size_t>(card.rank)] 
+					  << suits[static_cast<std::size_t>(card.suit)];
 	else return stream << "🂠 ";
 }
 
 void GolfGame::print() {
-	std::cout << "Current player: " << currentPlayer + 1 << std::endl;
-	std::cout << "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔" << std::endl;
-	std::cout << "  Deck: |";
-	for (Card card : deck) std::cout << card << "|";
-	std::cout << "\n\n  ";
+	cout << "Current player: " << currentPlayer + 1 << endl;
+	cout << "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔" << endl;
+	cout << "  Deck: |";
+	for (Card card : deck) cout << card << "|";
+	cout << "\n\n  ";
 
 	for (int p = 0; p < numPlayers; p++) {
-		std::cout << "   Player " << p + 1 << ":\t";
+		cout << "   Player " << p + 1 << ":\t";
 	}
-	std::cout << "\n";
+	cout << "\n";
 	for (int row = 0; row < ROWS; row++) {
-		std::cout << "  |";
+		cout << "  |";
 		for (int p = 0; p < numPlayers; p++) {
 			for (int col = 0; col < COLS; col++) {
-				std::cout << hands[p][col + row * COLS] << "|";
+				cout << hands[p][col + row * COLS] << "|";
 			}
-			if(p < numPlayers - 1) std::cout << "\t |";
+			if(p < numPlayers - 1) cout << "\t |";
 		}
-		std::cout << std::endl;
+		cout << endl;
 	}
 
-	std::cout << "\n\n  Discard: |";
-	for (Card card : discard) std::cout << card << "|";
-	std::cout << "\n\n\n";
+	cout << "\n\n  Discard: |";
+	for (Card card : discard) cout << card << "|";
+	cout << "\n\n\n";
 }
 
 int GolfGame::scoreHand(const Hand hand) {
@@ -137,12 +148,58 @@ int GolfGame::scoreHand(const Hand hand) {
 bool GolfGame::turn() {
 	players[currentPlayer].get()->play(this);
 
+	if (deck.empty()) {
+		deck.swap(discard);
+		shuffleDeck();
+	}
+
 	if (done()) return false;
 	else {
-		currentPlayer = ++currentPlayer % numPlayers;  // loop through players
-		print();
+		// loop through players
+		currentPlayer = ++currentPlayer % numPlayers;
+		if (VERBOSE) print();
 	}
 	return true;
+}
+
+void GolfGame::endGame() {
+	int goOutPlayer = currentPlayer;
+	int minScore = INT_MAX;
+	int winningPlayer = 0;
+
+	for (int p = 0; p < numPlayers; p++) {
+		if (p == goOutPlayer) continue;  // skip player who "went out"
+
+		for (Card& card : hands[p]) {
+			card.flipped = true;
+		}
+
+		int score = scoreHand(hands[p]);
+		if (score < minScore) {
+			minScore = score;
+			if (score < goOutScore) winningPlayer = p;
+		}
+		players[p].get()->addScore(score);
+	}
+
+	if (minScore <= goOutScore) goOutScore += GO_OUT_PENALTY;
+	else winningPlayer = goOutPlayer;
+	players[goOutPlayer].get()->addScore(goOutScore);
+
+	cout << " ▁▁▁▁▁▁▁▁▁▁▁▁\n"
+		<< "▕ Game over! ▏\n"
+		<< " ▔▔▔▔▔▔▔▔▔▔▔▔" << endl;
+	print();
+
+	cout << "Scores:\n  ";
+	for (int p = 0; p < numPlayers; p++) {
+		int score = (p == goOutPlayer) ? goOutScore : scoreHand(hands[p]);
+		cout << "Player " << p + 1 << " (" << score <<
+			(p == numPlayers - 1 ? ")" : "), ");
+	}
+
+	cout << "\nWinner: " << winningPlayer + 1;
+	cout << " (" << scoreHand(hands[winningPlayer]) << ")" << endl;
 }
 
 bool GolfGame::done() {
@@ -165,39 +222,7 @@ bool GolfGame::done() {
 			return false;
 		}
 		else {  // game over
-			int goOutPlayer = currentPlayer;
-			int minScore = INT_MAX;
-			int winningPlayer = 0;
-
-			for (int p = 0; p < numPlayers; p++) {
-				if (p == goOutPlayer) continue;  // skip player who "went out"
-				for (Card& card : hands[p]) {
-					card.flipped = true;
-				}
-				int score = scoreHand(hands[p]);
-				if (score < minScore) {
-					minScore = score;
-					if(score < goOutScore) winningPlayer = p;
-				}
-				players[p].get()->addScore(score);
-			}
-			if (minScore <= goOutScore) goOutScore += GO_OUT_PENALTY;
-			else winningPlayer = goOutPlayer;
-			players[goOutPlayer].get()->addScore(goOutScore);
-
-			std::cout << " ▁▁▁▁▁▁▁▁▁▁▁▁\n"
-				      << "▕ Game over! ▏\n" 
-					  << " ▔▔▔▔▔▔▔▔▔▔▔▔" << std::endl;
-			print();
-			std::cout << "Scores:\n  ";
-			for (int p = 0; p < numPlayers; p++) {
-				int score = (p == goOutPlayer) ? goOutScore : scoreHand(hands[p]);
-				std::cout << "Player " << p + 1 << " (" << score << 
-					(p == numPlayers - 1 ? ")" : "), ");
-			}
-			std::cout << "\nWinner: " << winningPlayer + 1;
-			std::cout << " (" << scoreHand(hands[winningPlayer]) << ")" << std::endl;
-			
+			endGame();
 			return true;
 		}
 	}

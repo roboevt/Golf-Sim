@@ -9,8 +9,8 @@
 #include "Player.h"
 
 struct Card {
-	enum Rank { ace = 1, two, three, four, five, six, seven, eight, nine, ten, jack, queen, king} rank;
-	enum Suit { club, diamond, heart, spade} suit;
+	enum class Rank: int { ace = 1, two, three, four, five, six, seven, eight, nine, ten, jack, queen, king} rank;
+	enum class Suit: int { club, diamond, heart, spade} suit;
 	bool flipped;
 	int score();
 	friend std::ostream& operator<< (std::ostream& stream, const Card& card);
@@ -22,6 +22,7 @@ class GolfGame {
 	static constexpr std::size_t COLS = 3;
 	static constexpr std::size_t DECKS = 1;
 	static constexpr int GO_OUT_PENALTY = 10;
+	static constexpr bool VERBOSE = false;
 	typedef std::array<Card, ROWS * COLS> Hand;
 	int turnsTillDone;
 	int goOutScore;
@@ -32,15 +33,17 @@ class GolfGame {
 	std::vector<std::shared_ptr<Player>> players;
 	int numPlayers, currentPlayer;
 
-	std::vector<Card> createRandomDeck();
+	std::vector<Card> createDeck();
 	int scoreHand(const Hand hand);
 	void deal();
 	void print();
+	void endGame();
 	bool done();
 
 public:
 	GolfGame(std::vector<std::shared_ptr<Player>> players);
 
+	void shuffleDeck();
 	Card drawCard() { Card c = deck.back(); deck.pop_back(); return c; }
 	bool canDrawDisCard() { return discard.size(); }
 	Card drawDisCard() { Card c = discard.back(); discard.pop_back(); return c; }
