@@ -19,12 +19,14 @@ int Card::score() {
 	}
 }
 
-GolfGame::GolfGame(std::vector<std::shared_ptr<Player>> players) : players(players), numPlayers(players.size()) {
+GolfGame::GolfGame(std::vector<std::shared_ptr<Player>> players) : 
+	players(players), numPlayers(static_cast<int>(players.size())), turnsTillDone(-1),
+	goOutScore(0) {
 	if (numPlayers < 2 || numPlayers * 6 > 52) {  // Todo parameter for number of decks
 		std::cout << "Invalid number of players" << std::endl;
 		exit(1);  // TODO better usage message method
 	}
-	srand(time(0));
+	srand(static_cast<uint32_t>(time(0)));
 	deck = createRandomDeck();
 	discard.reserve(52);
 	hands.resize(numPlayers);
@@ -50,7 +52,7 @@ std::vector<Card> GolfGame::createRandomDeck() {
 	}
 
 	auto rng = std::default_random_engine{};
-	rng.seed(time(0));
+	rng.seed(static_cast<uint32_t>(time(0)));
 	std::shuffle(std::begin(deck), std::end(deck), rng);
 
 	return deck;
@@ -106,7 +108,7 @@ void GolfGame::print() {
 	std::cout << "\n\n\n";
 }
 
-int GolfGame::scoreHand(Hand hand) {
+int GolfGame::scoreHand(const Hand hand) {
 	int totalScore = 0;
 
 	for (int col = 0; col < COLS; col++) {
@@ -132,23 +134,71 @@ int GolfGame::scoreHand(Hand hand) {
 	return totalScore;
 }
 
-int GolfGame::turn() {
+bool GolfGame::turn() {
 	players[currentPlayer].get()->play(this);
-	print();
-	currentPlayer = ++currentPlayer % numPlayers;  // loop through players
-	return 0;
+
+	if (done()) return false;
+	else {
+		currentPlayer = ++currentPlayer % numPlayers;  // loop through players
+		print();
+	}
+	return true;
 }
 
-bool GolfGame::done() {  // TODO not correct yet, but close and quicker.
-	for (Hand hand : hands) {
-		bool allFlipped = true;
-		for (Card card : hand) {
-			allFlipped *= card.flipped;
+bool GolfGame::done() {
+	if (turnsTillDone < 0) {  // normal game phase
+		for (const Hand& hand : hands) {
+			char allFlipped = 1;
+			for (const Card& card : hand) {
+				allFlipped *= card.flipped;
+			}
+			if (allFlipped) {  // Current player went out first
+				turnsTillDone = numPlayers - 1;
+				goOutScore = scoreHand(hand);
+			}
 		}
-		if (allFlipped) {
-			std::cout << "Winning score: " << scoreHand(hands[currentPlayer]);
+		return false;
+	}
+	else {  // last round
+		if (turnsTillDone) {
+			turnsTillDone--;
+			return false;
+		}
+		else {  // game over
+			int goOutPlayer = currentPlayer;
+			int minScore = INT_MAX;
+			int winningPlayer = 0;
+
+			for (int p = 0; p < numPlayers; p++) {
+				if (p == goOutPlayer) continue;  // skip player who "went out"
+				for (Card& card : hands[p]) {
+					card.flipped = true;
+				}
+				int score = scoreHand(hands[p]);
+				if (score < minScore) {
+					minScore = score;
+					if(score < goOutScore) winningPlayer = p;
+				}
+				players[p].get()->addScore(score);
+			}
+			if (minScore <= goOutScore) goOutScore += GO_OUT_PENALTY;
+			else winningPlayer = goOutPlayer;
+			players[goOutPlayer].get()->addScore(goOutScore);
+
+			std::cout << " ▁▁▁▁▁▁▁▁▁▁▁▁\n"
+				      << "▕ Game over! ▏\n" 
+					  << " ▔▔▔▔▔▔▔▔▔▔▔▔" << std::endl;
+			print();
+			std::cout << "Scores:\n  ";
+			for (int p = 0; p < numPlayers; p++) {
+				int score = (p == goOutPlayer) ? goOutScore : scoreHand(hands[p]);
+				std::cout << "Player " << p + 1 << " (" << score << 
+					(p == numPlayers - 1 ? ")" : "), ");
+			}
+			std::cout << "\nWinner: " << winningPlayer + 1;
+			std::cout << " (" << scoreHand(hands[winningPlayer]) << ")" << std::endl;
+			
 			return true;
 		}
 	}
-	return false;
 }

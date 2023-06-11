@@ -21,7 +21,10 @@ class GolfGame {
 	static constexpr std::size_t ROWS = 2;
 	static constexpr std::size_t COLS = 3;
 	static constexpr std::size_t DECKS = 1;
+	static constexpr int GO_OUT_PENALTY = 10;
 	typedef std::array<Card, ROWS * COLS> Hand;
+	int turnsTillDone;
+	int goOutScore;
 
 	std::vector<Card> deck;
 	std::vector<Card> discard;
@@ -30,9 +33,10 @@ class GolfGame {
 	int numPlayers, currentPlayer;
 
 	std::vector<Card> createRandomDeck();
-	int scoreHand(Hand hand);
+	int scoreHand(const Hand hand);
 	void deal();
 	void print();
+	bool done();
 
 public:
 	GolfGame(std::vector<std::shared_ptr<Player>> players);
@@ -45,8 +49,8 @@ public:
 		discardCard(hands[currentPlayer][index]); 
 		hands[currentPlayer][index] = card; }
 	void flipCard(int index) { hands[currentPlayer][index].flipped = true; }
+	bool inLastTurn() { return turnsTillDone >= 0; }
 
-	int turn();
-	bool done();
+	bool turn();
 };
 

@@ -10,8 +10,6 @@ int main(void) {
 	players.push_back(rand);
 
 	GolfGame game(players);
-	while(!game.done()) {
-		game.turn();
-	}
+	while(game.turn()) { }
 	return 0;
 }
